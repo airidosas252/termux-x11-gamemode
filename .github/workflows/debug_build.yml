@@ -2,8 +2,6 @@ name: Build
 
 on:
   workflow_dispatch:
-
-on:
   push:
     branches:
       - master
@@ -16,6 +14,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'img/**'
+    
 
 jobs:
   build:
