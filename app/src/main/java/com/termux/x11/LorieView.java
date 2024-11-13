@@ -79,6 +79,35 @@ public class LorieView extends SurfaceView implements InputStub {
         }
     };
 
+    public void injectInput(String action) {
+    switch (action) {
+        case "up":
+            // Example of sending a simulated "up" key event
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_UP, true);  // Key down
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_UP, false); // Key up
+            break;
+        case "down":
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, true);
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, false);
+            break;
+        case "left":
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_LEFT, true);
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_LEFT, false);
+            break;
+        case "right":
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_RIGHT, true);
+            sendKeyEvent(KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_RIGHT, false);
+            break;
+        case "action":
+            sendKeyEvent(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ENTER, true);
+            sendKeyEvent(KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_ENTER, false);
+            break;
+        default:
+            Log.w("LorieView", "Unknown overlay action: " + action);
+            break;
+    }
+    }
+
     public LorieView(Context context) { super(context); init(); }
     public LorieView(Context context, AttributeSet attrs) { super(context, attrs); init(); }
     public LorieView(Context context, AttributeSet attrs, int defStyleAttr) { super(context, attrs, defStyleAttr); init(); }
