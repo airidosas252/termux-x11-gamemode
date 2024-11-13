@@ -74,6 +74,7 @@ import java.util.Map;
 @SuppressLint("ApplySharedPref")
 @SuppressWarnings({"deprecation", "unused"})
 public class MainActivity extends AppCompatActivity implements View.OnApplyWindowInsetsListener {
+    private View overlayView;
     public static final String ACTION_STOP = "com.termux.x11.ACTION_STOP";
     public static final String ACTION_CUSTOM = "com.termux.x11.ACTION_CUSTOM";
 
