@@ -13,7 +13,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import android.graphics.PointF;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.View;
+
+import com.termux.x11.MainActivity;
 
 import java.util.List;
 import java.util.TreeSet;
@@ -34,15 +35,21 @@ public final class InputEventSender {
     public boolean pointerCapture = false;
     public boolean scaleTouchpad = false;
     public float capturedPointerSpeedFactor = 100;
+    public boolean dexMetaKeyCapture = false;
+    public boolean pauseKeyInterceptingWithEsc = false;
+    public boolean stylusIsMouse = false;
+    public boolean stylusButtonContactModifierMode = false;
 
     /** Set of pressed keys for which we've sent TextEvent. */
     private final TreeSet<Integer> mPressedTextKeys;
+    private final TreeSet<Integer> mPressedKeys;
 
     public InputEventSender(InputStub injector) {
         if (injector == null)
             throw new NullPointerException();
         mInjector = injector;
         mPressedTextKeys = new TreeSet<>();
+        mPressedKeys = new TreeSet<>();
     }
 
     private static final List<Integer> buttons = List.of(BUTTON_UNDEFINED, BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT);
@@ -50,6 +57,11 @@ public final class InputEventSender {
         if (!buttons.contains(button))
             return;
         mInjector.sendMouseEvent(pos != null ? (int) pos.x : 0, pos != null ? (int) pos.y : 0, button, down, relative);
+    }
+
+    public void sendStylusEvent(float x, float y, int pressure, int tiltX, int tiltY, int orientation, int buttons, boolean eraser, boolean mouse) {
+        mInjector.sendStylusEvent(x, y, pressure, tiltX, tiltY, orientation, buttons, eraser, mouse);
+        android.util.Log.d("STYLUS_EVENT", "transformed x " + x + " y " + y + " pressure " + pressure + " tiltX " + tiltX + " tiltY " + tiltY + " orientation " + orientation + " buttons " + buttons + " eraser " + eraser + " mouseMode " + mouse);
     }
 
     public void sendMouseDown(int button, boolean relative) {
@@ -132,9 +144,14 @@ public final class InputEventSender {
      * key-events or text-events. This contains some logic for handling some special keys, and
      * avoids sending a key-up event for a key that was previously injected as a text-event.
      */
-    public boolean sendKeyEvent(View v, KeyEvent e) {
+    public boolean sendKeyEvent(KeyEvent e) {
         int keyCode = e.getKeyCode();
         boolean pressed = e.getAction() == KeyEvent.ACTION_DOWN;
+
+        if ((e.getFlags() & KeyEvent.FLAG_CANCELED) == KeyEvent.FLAG_CANCELED) {
+            android.util.Log.d("KeyEvent", "We've got key event with FLAG_CANCELED, it will not be consumed. Details: " + e);
+            return true;
+        }
 
         // Events received from software keyboards generate TextEvent in two
         // cases:
@@ -201,11 +218,18 @@ public final class InputEventSender {
         }
 
         // Ignoring Android's autorepeat.
-        if (e.getRepeatCount() > 0)
+        // But some weird IMEs (or firmwares) send first event with repeatCount=1 (not 0)
+        // Probably related to preceding event with FLAG_CANCELLED flag
+        if (e.getRepeatCount() > 0 && mPressedKeys.contains(keyCode))
             return true;
 
-        if (pointerCapture && keyCode == KEYCODE_ESCAPE && !pressed)
-            v.releasePointerCapture();
+        if (pressed)
+            mPressedKeys.add(keyCode);
+        else
+            mPressedKeys.remove(keyCode);
+
+        if (keyCode == KEYCODE_ESCAPE && !pressed && e.hasNoModifiers())
+            MainActivity.setCapturingEnabled(false);
 
         // We try to send all other key codes to the host directly.
         return mInjector.sendKeyEvent(scancode, keyCode, pressed);

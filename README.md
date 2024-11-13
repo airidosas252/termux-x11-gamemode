@@ -25,11 +25,13 @@ or
 Just like any other X server.
 
 ## Setup Instructions
-Application runs only on Android 8+ devices.
-For this one you must enable the `x11-repo` repository can be done by executing `pkg install x11-repo` command
+Termux:X11 requres Android 8 or later. It consists of an Android app and a companion termux package, and you must install both.
 
-For X applications to work, you must install Termux-x11 companion package. You can do that by downloading an artifact from [last successful build](https://github.com/termux/termux-x11/actions/workflows/debug_build.yml) and installing `termux-x11-*-debug.apk` (according to device `architecture`, universal if you are doubting) and `*.deb` (if you use termux with `pkg`) or `*.tar.xz` (if you use termux with `pacman`) files from `termux-companion packages` artifact (do not try to install `shell-loader-nightly.apk` as Android application, it is not intended to be installed, it is only for chroot users).
-Or you can install nightly companion package from repositories with `pkg in x11-repo && pkg in termux-x11-nightly`
+The Android app is available via the [nightly release tag](https://github.com/termux/termux-x11/releases/tag/nightly) of this repository. Download and install the `app-$ARCHITECTURE-debug.apk` matching your device's CPU architecture. (You can choose `app-universal-debug.apk` if you are not sure which architecture to pick, and it'll use a few extra MB of storage.) 
+
+The companion termux package is available from the termux graphical repository. You can ensure it's enabled and install this package with `pkg i x11-repo && pkg i termux-x11-nightly`. If you need to, you can also download a `.deb` or `*.tar.xz` from the same nightly release tag as above.
+
+Finally, most people will want to use a desktop environment with Termux:X11. If you don't know what that means or don't know which one to pick, run `pkg i xfce` (also from `x11-repo`) to install a good one to start with. The rest of these instructions will assume that your goal is to run an XFCE desktop, or that you can modify the instructions as you follow them for your actual goal.
 
 ## Running Graphical Applications
 You can start your desired graphical application by doing:
@@ -47,6 +49,14 @@ You may replace `xfce4-session` if you use other than Xfce
 ```
 ~ $ termux-x11 :1 -xstartup "xfce4-session"
 ```
+
+Also you can do 
+```
+export TERMUX_X11_XSTARTUP="xfce4-session"
+termux-x11 :1
+```
+In this case you can same TERMUX_X11_XSTARTUP somewhere in `.bashrc` or other script and not type it every time you invoke termux-x11.  
+
 
 If you're done using Termux:X11 just simply exit it through it's notification drawer by expanding the Termux:X11 notification then "Exit"
 But you should pay attention that `termux-x11` command is still running and can not be killed this way.
@@ -71,10 +81,26 @@ If you plan to use the program with chroot or unshare, you must to run it as roo
 This directory must be accessible from the shell from which you launch termux-x11, i.e. it must be in the same SELinux context, same mount namespace, and so on.
 Also you must set `XKB_CONFIG_ROOT` environment variable pointing to container's `/usr/share/X11/xkb` directory, otherwise you will have `xkbcomp`-related errors.
 You can get loader for nightly build from an artifact of [last successful build](https://github.com/termux/termux-x11/actions/workflows/debug_build.yml)
+Do not forget to disable SELinux
 ```
+setenforce 0
 export TMPDIR=/path/to/chroot/container/tmp
 export CLASSPATH=$(/system/bin/pm path com.termux.x11 | cut -d: -f2)
 /system/bin/app_process / com.termux.x11.CmdEntryPoint :0
+```
+
+### Force stopping X server (running in termux background, not an activity)
+
+termux-x11's X server runs in process with name "app_process", not "termux-x11". But you can kill it by searching "com.termux.x11" in commandline.
+So killing it will look like
+```
+pkill -f com.termux.x11
+```
+
+### Closing Android activity (running in foreground, not X server)
+
+```
+am broadcast -a com.termux.x11.ACTION_STOP -p com.termux.x11
 ```
 
 ### Logs
@@ -150,6 +176,22 @@ Also you can start `termux-x11` with `-dpi` option.
 ```
 ~ $ termux-x11 :1 -xstartup "xfce4-session" -dpi 120
 ```
+
+## Changing, dumping and restoring preferences from commandline
+
+It is possible to change preferences of termux-x11 from command line.
+`termux-x11-nightly` package contains `termux-x11-preference` tool which can be used like 
+```shell
+termux-x11-preference [list] {key:value} [{key2:value2}]..."
+```
+
+Use `termux-x11-preference` to dump current preference.
+Use `termux-x11-preference > file` to dump current preferences to file.
+Use `termux-x11-preferences < file` to restore preferences from file.
+Use `termux-x11-preferences "fullscreen"="false" "showAdditionalKbd"="true"` to disable fullscreen and enable additional key bar. The full list of preferences you can modify is available with `termux-x11-preference list` command. You can specify one or more preferences here.
+
+Termux:X11 activity should be available in background or foreground, otherwise `termux-x11-preferences` tool will hang indefinitely.
+In the case if there is `Store preferences for secondary displays separately` preference active `termux-x11-preference` will use/modify preferences of display where Termux:X11 activity is currently opened.
 
 ## Using with 3rd party apps
 It is possible to use Termux:X11 with 3rd party apps.

@@ -7,23 +7,30 @@ import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
-import android.preference.PreferenceManager;
+import android.os.Build;
+import android.text.Editable;
+import android.text.InputType;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.view.inputmethod.BaseInputConnection;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.InputMethodSubtype;
 
 import androidx.annotation.Keep;
 import androidx.annotation.NonNull;
 
 import com.termux.x11.input.InputStub;
+import com.termux.x11.input.TouchInputHandler;
 
 import java.nio.charset.StandardCharsets;
 import java.util.regex.PatternSyntaxException;
@@ -42,6 +49,11 @@ public class LorieView extends SurfaceView implements InputStub {
     private ClipboardManager clipboard;
     private long lastClipboardTimestamp = System.currentTimeMillis();
     private static boolean clipboardSyncEnabled = false;
+    private static boolean hardwareKbdScancodesWorkaround = false;
+    private final InputMethodManager mIMM = (InputMethodManager)getContext().getSystemService( Context.INPUT_METHOD_SERVICE);
+    private String mImeLang;
+    private boolean mImeCJK;
+    public boolean enableGboardCJK;
     private Callback mCallback;
     private final Point p = new Point();
     private final SurfaceHolder.Callback mSurfaceCallback = new SurfaceHolder.Callback() {
@@ -123,27 +135,31 @@ public class LorieView extends SurfaceView implements InputStub {
     }
 
     void getDimensionsFromSettings() {
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getContext());
+        Prefs prefs = MainActivity.getPrefs();
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
+        if (XrActivity.isEnabled()) {
+            width = 1024;
+            height = 768;
+        }
         int w = width;
         int h = height;
-        switch(preferences.getString("displayResolutionMode", "native")) {
+        switch(prefs.displayResolutionMode.get()) {
             case "scaled": {
-                int scale = preferences.getInt("displayScale", 100);
+                int scale = prefs.displayScale.get();
                 w = width * 100 / scale;
                 h = height * 100 / scale;
                 break;
             }
             case "exact": {
-                String[] resolution = preferences.getString("displayResolutionExact", "1280x1024").split("x");
+                String[] resolution = prefs.displayResolutionExact.get().split("x");
                 w = Integer.parseInt(resolution[0]);
                 h = Integer.parseInt(resolution[1]);
                 break;
             }
             case "custom": {
                 try {
-                    String[] resolution = preferences.getString("displayResolutionCustom", "1280x1024").split("x");
+                    String[] resolution = prefs.displayResolutionCustom.get().split("x");
                     w = Integer.parseInt(resolution[0]);
                     h = Integer.parseInt(resolution[1]);
                 } catch (NumberFormatException | PatternSyntaxException ignored) {
@@ -154,7 +170,7 @@ public class LorieView extends SurfaceView implements InputStub {
             }
         }
 
-        if ((width < height && w > h) || (width > height && w < h))
+        if (prefs.adjustResolution.get() && ((width < height && w > h) || (width > height && w < h)))
             p.set(h, w);
         else
             p.set(w, h);
@@ -164,12 +180,15 @@ public class LorieView extends SurfaceView implements InputStub {
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(getContext());
-        if (preferences.getBoolean("displayStretch", false)
-              || "native".equals(preferences.getString("displayResolutionMode", "native"))
-              || "scaled".equals(preferences.getString("displayResolutionMode", "native"))) {
-            getHolder().setSizeFromLayout();
-            return;
+        Prefs prefs = MainActivity.getPrefs();
+        if (prefs.displayStretch.get()
+              || "native".equals(prefs.displayResolutionMode.get())
+              || "scaled".equals(prefs.displayResolutionMode.get())) {
+
+            if (!XrActivity.isEnabled()) {
+                getHolder().setSizeFromLayout();
+                return;
+            }
         }
 
         getDimensionsFromSettings();
@@ -180,7 +199,7 @@ public class LorieView extends SurfaceView implements InputStub {
         int width = getMeasuredWidth();
         int height = getMeasuredHeight();
 
-        if ((width < height && p.x > p.y) || (width > height && p.x < p.y))
+        if (prefs.adjustResolution.get() && ((width < height && p.x > p.y) || (width > height && p.x < p.y)))
             //noinspection SuspiciousNameCombination
             p.set(p.y, p.x);
 
@@ -204,15 +223,20 @@ public class LorieView extends SurfaceView implements InputStub {
 
     @Override
     public boolean dispatchKeyEventPreIme(KeyEvent event) {
+        if (hardwareKbdScancodesWorkaround) return false;
         Activity a = getActivity();
         return (a instanceof MainActivity) && ((MainActivity) a).handleKey(event);
     }
 
     ClipboardManager.OnPrimaryClipChangedListener clipboardListener = this::handleClipboardChange;
 
-    static void setClipboardSyncEnabled(boolean enabled) {
-        clipboardSyncEnabled = enabled;
-        setClipboardSyncEnabled(enabled, enabled);
+    public void reloadPreferences(Prefs p) {
+        hardwareKbdScancodesWorkaround = p.hardwareKbdScancodesWorkaround.get();
+        clipboardSyncEnabled = p.clipboardEnable.get();
+        setClipboardSyncEnabled(clipboardSyncEnabled, clipboardSyncEnabled);
+        TouchInputHandler.refreshInputDevices();
+        enableGboardCJK = p.enableGboardCJK.get();
+        mIMM.restartInput(this);
     }
 
     // It is used in native code
@@ -225,7 +249,7 @@ public class LorieView extends SurfaceView implements InputStub {
         lastClipboardTimestamp = System.currentTimeMillis() + 150;
     }
 
-    // It is used in native code
+    /** @noinspection unused*/ // It is used in native code
     void requestClipboard() {
         if (!clipboardSyncEnabled) {
             sendClipboardEvent("".getBytes(StandardCharsets.UTF_8));
@@ -249,7 +273,8 @@ public class LorieView extends SurfaceView implements InputStub {
         if (clipboardSyncEnabled && desc != null &&
                 lastClipboardTimestamp < desc.getTimestamp() &&
                 desc.getMimeTypeCount() == 1 &&
-                desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)) {
+                (desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) ||
+                        desc.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
             lastClipboardTimestamp = desc.getTimestamp();
             sendClipboardAnnounce();
             Log.d("CLIP", "sending clipboard announce");
@@ -269,6 +294,71 @@ public class LorieView extends SurfaceView implements InputStub {
             checkForClipboardChange();
         } else
             clipboard.removePrimaryClipChangedListener(clipboardListener);
+
+        TouchInputHandler.refreshInputDevices();
+    }
+
+    public void checkRestartInput(boolean recheck) {
+        if (!enableGboardCJK)
+            return;
+
+        InputMethodSubtype methodSubtype = mIMM.getCurrentInputMethodSubtype();
+        String languageTag = methodSubtype == null ? null : methodSubtype.getLanguageTag();
+        if (languageTag != null && languageTag.length() >= 2 && !languageTag.substring(0, 2).equals(mImeLang))
+            mIMM.restartInput(this);
+        else if (recheck) { // recheck needed because sometimes requestCursorUpdates() is called too fast, before InputMethodManager detect change in IM subtype
+            MainActivity.handler.postDelayed(() -> checkRestartInput(false), 40);
+        }
+    }
+
+    @Override
+    public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+        outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
+
+        // Note that IME_ACTION_NONE cannot be used as that makes it impossible to input newlines using the on-screen
+        // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
+
+        if (enableGboardCJK) {
+            InputMethodSubtype methodSubtype = mIMM.getCurrentInputMethodSubtype();
+            mImeLang = methodSubtype == null ? null : methodSubtype.getLanguageTag();
+            if (mImeLang != null && mImeLang.length() > 2)
+                mImeLang = mImeLang.substring(0, 2);
+            mImeCJK = mImeLang != null && (mImeLang.equals("zh") || mImeLang.equals("ko") || mImeLang.equals("ja"));
+            outAttrs.inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS |
+                    (mImeCJK ? InputType.TYPE_TEXT_VARIATION_NORMAL : InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            return new BaseInputConnection(this, false) {
+                // workaround for Gboard
+                // Gboard calls requestCursorUpdates() whenever switching language
+                // check and then restart keyboard in different inputType when needed
+                @Override
+                public Editable getEditable() {
+                    checkRestartInput(true);
+                    return super.getEditable();
+                }
+                @Override
+                public boolean requestCursorUpdates(int cursorUpdateMode) {
+                    checkRestartInput(true);
+                    return super.requestCursorUpdates(cursorUpdateMode);
+                }
+
+                @Override
+                public boolean commitText(CharSequence text, int newCursorPosition) {
+                    boolean result = super.commitText(text, newCursorPosition);
+                    if (mImeCJK)
+                        // suppress Gboard CJK keyboard suggestion
+                        // this workaround does not work well for non-CJK keyboards
+                        // , when typing fast and two keypresses (commitText) are close in time
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                            mIMM.invalidateInput(LorieView.this);
+                        else
+                            mIMM.restartInput(LorieView.this);
+                    return result;
+                }
+            };
+        } else {
+            return super.onCreateInputConnection(outAttrs);
+        }
     }
 
     static native void connect(int fd);
@@ -280,9 +370,10 @@ public class LorieView extends SurfaceView implements InputStub {
     static native void sendWindowChange(int width, int height, int framerate);
     public native void sendMouseEvent(float x, float y, int whichButton, boolean buttonDown, boolean relative);
     public native void sendTouchEvent(int action, int id, int x, int y);
+    public native void sendStylusEvent(float x, float y, int pressure, int tiltX, int tiltY, int orientation, int buttons, boolean eraser, boolean mouseMode);
+    static public native void requestStylusEnabled(boolean enabled);
     public native boolean sendKeyEvent(int scanCode, int keyCode, boolean keyDown);
     public native void sendTextEvent(byte[] text);
-    public native void sendUnicodeEvent(int code);
 
     static {
         System.loadLibrary("Xlorie");
