@@ -143,6 +143,37 @@ public class MainActivity extends AppCompatActivity implements View.OnApplyWindo
     @SuppressLint({"AppCompatMethod", "ObsoleteSdkInt", "ClickableViewAccessibility", "WrongConstant", "UnspecifiedRegisterReceiverFlag"})
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+    // Inflate and add overlay view if connected
+    if (mClientConnected) {
+        addOverlayControls();
+    }
+}
+
+private void addOverlayControls() {
+    if (overlayView == null) {
+        overlayView = getLayoutInflater().inflate(R.layout.overlay_controls, null);
+        addContentView(overlayView, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+
+        // Set up button listeners to inject events into LorieView
+        overlayView.findViewById(R.id.btn_up).setOnClickListener(v -> handleOverlayInput("up"));
+        overlayView.findViewById(R.id.btn_down).setOnClickListener(v -> handleOverlayInput("down"));
+        overlayView.findViewById(R.id.btn_left).setOnClickListener(v -> handleOverlayInput("left"));
+        overlayView.findViewById(R.id.btn_right).setOnClickListener(v -> handleOverlayInput("right"));
+        overlayView.findViewById(R.id.btn_action).setOnClickListener(v -> handleOverlayInput("action"));
+    }
+}
+
+private void handleOverlayInput(String direction) {
+    // Pass the direction or action to your X11 view
+    if (getLorieView() != null) {
+        getLorieView().injectInput(direction);
+    }
+}
 
         prefs = new Prefs(this);
         int modeValue = Integer.parseInt(prefs.touchMode.get()) - 1;
